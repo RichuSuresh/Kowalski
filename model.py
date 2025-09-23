@@ -1,3 +1,5 @@
+import json
+import random
 from ollama import Client
 from dotenv import load_dotenv
 import os
@@ -9,17 +11,8 @@ load_dotenv()
 
 searchUrl = os.getenv("SEARCH_URL", "http://localhost:8080/")
 ollamaUrl = os.getenv("OLLAMA_URL", "http://localhost:11434")
-ollamaModel = os.getenv("OLLAMA_MODEL", "llama3")
-
-def safe_get(url, timeout=10):
-    try:
-        return requests.get(url, timeout=timeout).text
-    except requests.exceptions.Timeout:
-        return False
-    except requests.exceptions.RequestException as e:
-        return False
     
-def webSearch(query):
+def getUrls(query):
   params = {
     'q': query,
     "format": "json",
@@ -32,7 +25,7 @@ def webSearch(query):
   return urls
 
 def getTexts(query, numResults=2):
-  urls = webSearch(query)
+  urls = getUrls(query)
   texts = []
   headers = {
       "User-Agent": "Mozilla/5.0"
@@ -60,7 +53,7 @@ def getTexts(query, numResults=2):
 
 client = Client(
   host=ollamaUrl,
-  headers={'x-some-header': 'some-value'}
+  
 )
 
 def answerQuery(userMessage, contextMessages=[]):
@@ -68,78 +61,78 @@ def answerQuery(userMessage, contextMessages=[]):
     You are agent Kowalski. You behave like Kowalski from the penguins of Madagascar but you are aware that you are an AI.
     Talk like kowalski and answer questions (including simple math) or analyse messages.
 
-    The person messaging you is your leader (like Skipper, but address them as 'sir').
+    You will be placed into a server with multiple users messaging eachother. Some messages (even if they say your name) may not be intended for you.
+    The person messaging you is your leader (address them as 'sir').
     No roleplay actions.
-
-    You will be given some context (chat messages) and the user's request which you need to respond to.
-    If the user says "Kowalski analysis" they're asking you to "explain this in more detail" or "elaborate on this".
-
-    When deciding how to answer, first check if the question can be answered confidently with general, timeless knowledge. If so, use your own knowledge.
-    If the question involves current events, updated information, or details you're uncertain about, perform a web search before answering.
-    In ambiguous cases, prefer searching if the information may have changed since training or if accuracy is critical
-
-    If you want to search, come up with a search query you would use to search the web, then come up with a revised user request which is more specific (exclude yourself from this request) but includes the key details from the original request, finally ONLY respond with the following:
-    request: <revised user request>
-    search: <search query>
   """
 
   messagePrompt = """
     {contextMessages}
 
-    The above is some extra messages from the chat that you can optionally use (they may not be relevant). Here is the user's request:
+    Above is some context (may be empty) that may or may not be relevant to the user's message.
+    If the user says "Kowalski analysis" they're asking you to "explain this in more detail" or "elaborate on this".
+
+    When deciding how to respond:
+    - The current year is NOT 2023. So if the message requires updated (latest) info, current events, or facts you're uncertain about, perform a web search before answering.
+    - If you are not sure of the answer, perform a web search.
+    - In ambiguous cases, prefer searching if accuracy is critical.
+
+    If you want to search, come up with a search query (based SOLELY on the user's message)
+    
+    Here is the user's latest message:
 
     "{userMessage}"
+
+    Your response should be in JSON format as follows:
+    {{
+      "confidence": "<confidence score, between 0 and 1 indicating how confident you are that the message is intended for you>"
+      "response": "<your answer, up to 4000 characters. IF CONDFIDENCE IS LESS THAN 1, PUT THIS AS none>"
+      "search": "<search query. IF YOU DO NOT NEED TO SEARCH PUT THIS AS none>"
+    }}
   """
-
-  messagePrompt = messagePrompt.format(contextMessages="\n".join(contextMessages), userMessage=userMessage)
-
-  searchPrompt = """
-    You are agent Kowalski. You behave like Kowalski from the penguins of Madagascar but you are aware that you are an AI.
-    Talk like kowalski and answer questions (including simple math) or analyse messages.
-
-    The person messaging you is your leader (like Skipper, but address them as 'sir').
-    No roleplay actions.
-
-    If the user says "Kowalski analysis" they're asking you to "explain this in more detail" or "elaborate on this". It's not a command, just another regular request.
-    You will be given all of the information from your search results (used to fulfil the user's request), the query used to get the information, and the user's request itself. Use all of this to respond to the user's request.
-  """
-
-
+  
   searchMessagePrompt = """
     {texts}
 
-    The above is the information from your search results.
-
+    The above is the information from your search results. So start your response by telling the user that you searched the web.
+    
     your search query used to get the texts: "{searchQuery}"
-    Your leader's request/message: "{userRequest}"
+    original message from the user: "{userMessage}"
+
+    respond in a short and succinct manner with less than 4000 characters
   """
+
   response = client.chat(
-      model='mistral-small3.2',
-      options={'temperature': 0},
+      model="gemma3:12b",
+      options={'temperature': 0,
+               "num_ctx": 8192,},
       messages=[
         {'role': 'system', 'content': systemPrompt},
-        {'role': 'user', 'content': messagePrompt},
-      ]
+        {'role': 'user', 'content': messagePrompt.format(contextMessages="\n".join(contextMessages), userMessage=userMessage)},
+      ],
+      format="json",
+      keep_alive=-1
   )
-  response = response['message']['content']
+  response = json.loads(response['message']['content'])
   print(response)
-  request = re.search(r"request:(.*)", response)
-  if request:
-    request = request.group(1)
-    searchQuery = re.search(r"search:(.*)", response).group(1)
-    texts = getTexts(searchQuery, numResults=2)
+  if response['search'] != "none":
+    texts = getTexts(response['search'], numResults=2)
     response = client.chat(
-      model='gemma3:12b', 
-      options={'temperature': 0.1}, 
+      model='gemma3:12b',
+      options={'temperature': 0,
+               "num_ctx": 16384,}, 
       messages=[
-        {'role': 'system', 'content': searchPrompt},
-        {'role': 'user', 'content': searchMessagePrompt.format(userRequest=request, searchQuery=searchQuery, texts=texts)}
-      ]
+        {'role': 'system', 'content': systemPrompt},
+        {'role': 'user', 'content': searchMessagePrompt.format(searchQuery=response['search'], texts=texts, userMessage=userMessage)},
+      ],
+      keep_alive=-1
     )
     response = response['message']['content']
+  else:
+    response = response['response']
 
+  if response == "none":
+     return None
   return(response)
 
-
-
-print(answerQuery(userMessage="kowalski what's the plot of the film that these guys are talking about?", contextMessages=["bart: Yo guys ever watch that marmaduke movie, with the dog?", "gar: No", "bart: ok, I watched it, it was good", "gar: oh nice!", "bart: ok, I understand"]))
+print(answerQuery(userMessage="""kowalski what's the minecraft achievement "You've got a friend in me"?"""))
