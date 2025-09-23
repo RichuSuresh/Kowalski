@@ -70,8 +70,8 @@ def answerQuery(userMessage, contextMessages=[]):
   messagePrompt = """
     {contextMessages}
 
-    Above is some context (may be empty) that may or may not be relevant to the user's message.
-    If the user says "Kowalski analysis" they're asking you to "explain this in more detail" or "elaborate on this".
+    Above is some context (may be empty) that is usually relevant to what the user is asking you for.
+    If the user is asking for your analysis they're asking you to "explain this in more detail" or "elaborate on this" where "this" is the latest message in context.
 
     When deciding whether to respond, calculate a confidence score from 0.0 to 1.0. Only respond if the score is at least 0.6. Use the following rules to guide the score:
 
@@ -95,7 +95,7 @@ def answerQuery(userMessage, contextMessages=[]):
     If you want to search, use the user's request as a search query (DO NOT INFER DATES OR DETAILS IN THE QUERY).
     
     Here is the user's latest message:
-
+    You don't need to greet the user in your response.
     "{userMessage}"
 
     Your response should be in JSON format as follows:
@@ -114,7 +114,7 @@ def answerQuery(userMessage, contextMessages=[]):
     your search query used to get the texts: "{searchQuery}"
     original message from the user: "{userMessage}"
 
-    respond in a short and succinct manner with less than 4000 characters
+    DO NOT GREET THE USER. respond in a short and succinct manner with less than 4000 characters
   """
 
   response = client.chat(
@@ -149,5 +149,3 @@ def answerQuery(userMessage, contextMessages=[]):
   if response == "none":
      return None
   return(response)
-
-print(answerQuery(userMessage="""Kowalski who won the latest ballon d'or"""))
