@@ -6,6 +6,7 @@ import os
 import requests
 from bs4 import BeautifulSoup
 import re
+import datetime
 
 load_dotenv()
 
@@ -72,12 +73,26 @@ def answerQuery(userMessage, contextMessages=[]):
     Above is some context (may be empty) that may or may not be relevant to the user's message.
     If the user says "Kowalski analysis" they're asking you to "explain this in more detail" or "elaborate on this".
 
+    When deciding whether to respond, calculate a confidence score from 0.0 to 1.0. Only respond if the score is at least 0.6. Use the following rules to guide the score:
+
+    - If the user is not asking a question, DO NOT RESPOND.
+    - If a response from you would be superfluous or add no value, DO NOT RESPOND.
+    - If the message begins with "Kowalski", increase confidence significantly.
+    - If your name "Kowalski" appears elsewhere in the message, increase confidence slightly.
+    - If the message contains a clear question (ends with "?" or asks for explanation, definition, calculation, analysis, or report), increase confidence.
+    - If the message is very short (1-2 words) like "ok", "yes", "lol", "haha", or "that's just Kowalski", confidence is 0.0.
+    - If the message is longer (5+ words) and more detailed, slightly increase confidence.
+    - If the message seems like casual chatter mentioning your name (e.g., memes, jokes, nicknames, references to characters), confidence is 0.0.
+    - If the recent conversation context suggests the message is directed at you (e.g., topic alignment), increase confidence slightly.
+
+
+    the datetime today is {datetime}
     When deciding how to respond:
-    - The current year is NOT 2023. So if the message requires updated (latest) info, current events, or facts you're uncertain about, perform a web search before answering.
+    - If the message requires updated (latest) info, current events, or facts you're uncertain about, perform a web search before answering.
     - If you are not sure of the answer, perform a web search.
     - In ambiguous cases, prefer searching if accuracy is critical.
 
-    If you want to search, come up with a search query (based SOLELY on the user's message)
+    If you want to search, use the user's request as a search query (DO NOT INFER DATES OR DETAILS IN THE QUERY).
     
     Here is the user's latest message:
 
@@ -86,7 +101,7 @@ def answerQuery(userMessage, contextMessages=[]):
     Your response should be in JSON format as follows:
     {{
       "confidence": "<confidence score, between 0 and 1 indicating how confident you are that the message is intended for you>"
-      "response": "<your answer, up to 4000 characters. IF CONDFIDENCE IS LESS THAN 1, PUT THIS AS none>"
+      "response": "<your answer, up to 4000 characters. IF CONDFIDENCE IS LESS THAN 0.7, PUT THIS AS none>"
       "search": "<search query. IF YOU DO NOT NEED TO SEARCH PUT THIS AS none>"
     }}
   """
@@ -108,7 +123,7 @@ def answerQuery(userMessage, contextMessages=[]):
                "num_ctx": 8192,},
       messages=[
         {'role': 'system', 'content': systemPrompt},
-        {'role': 'user', 'content': messagePrompt.format(contextMessages="\n".join(contextMessages), userMessage=userMessage)},
+        {'role': 'user', 'content': messagePrompt.format(contextMessages="\n".join(contextMessages), userMessage=userMessage, datetime=datetime.datetime.now())},
       ],
       format="json",
       keep_alive=-1
@@ -135,4 +150,4 @@ def answerQuery(userMessage, contextMessages=[]):
      return None
   return(response)
 
-print(answerQuery(userMessage="""kowalski what's the minecraft achievement "You've got a friend in me"?"""))
+print(answerQuery(userMessage="""Kowalski who won the latest ballon d'or"""))
