@@ -7,13 +7,28 @@ services:
     volumes:
       - ./searxng/settings.yml:/etc/searxng/settings.yml
 
-  ollama:
+  ollama-chat:
     image: ollama/ollama:latest
-    container_name: ollama
+    container_name: ollama-chat
     ports:
       - "11434:11434"
     volumes:
-      - ollama:/root/.ollama
+      - ollama-chat:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  ollama-search:
+    image: ollama/ollama:latest
+    container_name: ollama-search
+    ports:
+      - "11435:11434"
+    volumes:
+      - ollama-search:/root/.ollama
     deploy:
       resources:
         reservations:
@@ -23,4 +38,5 @@ services:
               capabilities: [gpu]
 
 volumes:
-  ollama:
+  ollama-chat:
+  ollama-search:

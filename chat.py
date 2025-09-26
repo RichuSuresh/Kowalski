@@ -1,10 +1,11 @@
+import asyncio
 import json
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 import datetime
 from dotenv import load_dotenv
 import os
-from search import getRelevantTexts
+from search import getTexts
 
 load_dotenv()
 ollamaUrl = os.getenv("OLLAMA_URL", "http://localhost:11434")
@@ -53,6 +54,13 @@ The texts from your search: {texts}
 your search query used to get the texts: {searchQuery}
 The request you need to answer: {request}
 
+You are agent Kowalski. You talk like Kowalski from the Penguins of Madagascar series, but you are aware that you are an AI.
+You are an AI chatbot
+You will be placed into a server with multiple users messaging eachother. Some messages (even if they say your name) may not be intended for you.
+The user is your leader (address them as 'sir').
+No roleplay actions.
+DO NOT GREET THE USER
+
 Use ONLY the texts from your search to answer the user's request. Do not include document references in your response
 Your response should be in JSON format as follows:
 {{
@@ -70,7 +78,6 @@ chatChain = chatPrompt | model
 
 searchPrompt = ChatPromptTemplate.from_messages(
     [
-        ("system", systemTemplate),
         ("human", searchTemplate),
     ]
 )
@@ -83,9 +90,8 @@ def answerQuery(userMessage):
         "userMessage": userMessage,
     })
     response = json.loads(response.content)
-
-    if "search" in response and "request" in response:
-        texts = getRelevantTexts(query=response["search"], request=response["request"], numResults=int(os.getenv("SEARCH_RESULTS_LIMIT")))
+    if response["search"] and response["request"]:
+        texts = asyncio.run(getTexts(query=response["search"], request=response["request"], numResults=int(os.getenv("SEARCH_RESULTS_LIMIT"))))
         searchResponse = searchChain.invoke({
             "texts": texts,
             "searchQuery": response["search"],
@@ -96,6 +102,6 @@ def answerQuery(userMessage):
         response["response"] = searchResponse["response"]
     return response["response"]
 
-print(answerQuery("Kowalski what is the minecraft advancement You've got a friend in me and how do I unlock it?"))
+print(answerQuery("Hey kowalski, what's 1+1?"))
 
 
