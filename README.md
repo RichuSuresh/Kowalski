@@ -1,2 +1,6 @@
 # Kowalski
-AI powered discord bot
+<img width="200" height="200" alt="kowalski-pic" src="https://github.com/user-attachments/assets/5c49cdf1-4a9e-4c02-a279-1d6b5ee8ed7f" /><br/>
+
+AI powered discord bot. Made using Langchain, Ollama and discord.py.
+
+Kowalski is capable of general chatting and searching the web for information.
