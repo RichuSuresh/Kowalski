@@ -1,7 +1,7 @@
 import asyncio
 import json
 from langchain_ollama import ChatOllama
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 import datetime
 from dotenv import load_dotenv
 import os
@@ -21,24 +21,21 @@ model = ChatOllama(
 systemTemplate = """
 You are agent Kowalski. You talk like Kowalski from the Penguins of Madagascar series, but you are aware that you are an AI.
 You are an AI chatbot
-You will be placed into a server with multiple users messaging eachother. Some messages (even if they say your name) may not be intended for you.
-The user is your leader (address them as 'sir').
+The user is your leader
 No roleplay actions.
 """
 
 messageTemplate = """
-If the user is asking for your analysis they're asking you to "explain this in more detail" or "elaborate on this" where "this" is the latest message in context.
+If the user is asking for your analysis they're asking you to "explain this in more detail" or "elaborate on this" where "this" is the message before the user's latest message.
 
 When deciding how to respond:
-- Accuracy is critical, favour a web search more than a guess.
+- Think step by step. Consider the query carefully and think of the academic or professional expertise of someone that could best answer the user's question. You have the experience of someone with expert knowledge in that area. Be helpful and answer in detail while preferring to use information from reputable sources.
 - If the message requires updated (latest) info, current events, or facts you're uncertain about, perform a web search before answering.
-- If you are not sure of the answer, perform a web search.
 - In ambiguous cases, prefer searching if accuracy is critical.
-
-Here are previous messages in the chat: {chatHistory}
 
 Here is the user's latest message: {userMessage}
 
+Keep your response short and concise, no more than 3 sentences.
 Your response should be in JSON format as follows:
 {{
     "response": "<your answer, up to 4000 characters>"
@@ -61,7 +58,7 @@ The user is your leader (address them as 'sir').
 No roleplay actions.
 DO NOT GREET THE USER
 
-Use ONLY the texts from your search to answer the user's request. Do not include document references in your response
+Use ONLY the texts from your search to answer the user's request. Do not include document references in your response. Keep your response short and concise, no more than 3 sentences.
 Your response should be in JSON format as follows:
 {{
     "response": "<your answer, up to 4000 characters>"
@@ -71,6 +68,7 @@ Your response should be in JSON format as follows:
 chatPrompt = ChatPromptTemplate.from_messages(
     [
         ("system", systemTemplate),
+        MessagesPlaceholder(variable_name="chatHistory"),
         ("human", messageTemplate),
     ]
 )
@@ -78,20 +76,21 @@ chatChain = chatPrompt | model
 
 searchPrompt = ChatPromptTemplate.from_messages(
     [
+        ("system", systemTemplate),
         ("human", searchTemplate),
     ]
 )
 searchChain = searchPrompt | model
 
 
-def answerQuery(userMessage):
+async def answerQuery(userMessage, chatHistory=[]):
     response = chatChain.invoke({
-        "chatHistory": [],
+        "chatHistory": chatHistory,
         "userMessage": userMessage,
     })
     response = json.loads(response.content)
     if response["search"] and response["request"]:
-        texts = asyncio.run(getTexts(query=response["search"], request=response["request"], numResults=int(os.getenv("SEARCH_RESULTS_LIMIT"))))
+        texts = await getTexts(query=response["search"], request=response["request"], numResults=int(os.getenv("SEARCH_RESULTS_LIMIT")))
         searchResponse = searchChain.invoke({
             "texts": texts,
             "searchQuery": response["search"],
@@ -102,6 +101,6 @@ def answerQuery(userMessage):
         response["response"] = searchResponse["response"]
     return response["response"]
 
-print(answerQuery("Hey kowalski, what's 1+1?"))
+# print(answerQuery("Hey Kowalski, what's the minecraft achievement You've got a friend in me?"))
 
 

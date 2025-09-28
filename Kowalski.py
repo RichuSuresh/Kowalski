@@ -1,7 +1,8 @@
 import discord
-from model import answerQuery
+from chat import answerQuery
 from dotenv import load_dotenv
 import os
+from langchain_core.messages import HumanMessage, AIMessage
 
 token = os.getenv("BOT_TOKEN")
 intents = discord.Intents.default()
@@ -13,11 +14,19 @@ client = discord.Client(intents=intents)
 async def on_ready():
     print("Systems online, sir. Awaiting your next order")
 
-
-async def getContextMessages(message, limit=10):
+def createChatMessage(message):
+    content = "[at: %s] [From: %s] %s" % (message.created_at, message.author, message.content)
+    if message.author.id == client.user.id:
+        return AIMessage(content=content)
+    else:
+        return HumanMessage(content=content)
+    
+async def getChatHistory(message, limit=10):
     messages = []
-    async for msg in message.channel.history(limit=10):
-        messages.append("[at: %s] [From: %s] %s" % (msg.created_at, msg.author, msg.content))
+    async for msg in message.channel.history(limit=limit+1):
+        historyMessage = createChatMessage(msg)
+        messages.append(historyMessage)
+    messages = messages[::-1]
     messages.pop()
     return messages
 
@@ -26,19 +35,18 @@ async def on_message(message):
     if message.author == client.user:
         return
 
-
     if "Kowalski" in message.content or "kowalski" in message.content or (message.reference):
-        lastMessages = await getContextMessages(message)
+        lastMessages = await getChatHistory(message, limit=3)
         if message.reference:
             repliedMessage = await message.channel.fetch_message(message.reference.message_id)
             if(repliedMessage.author == client.user) or ("Kowalski" in message.content or "kowalski" in message.content):
                 async with message.channel.typing():
-                    lastMessages.append("[at: %s] [From: %s] %s" % (repliedMessage.created_at, repliedMessage.author, repliedMessage.content))
-                    print(lastMessages)
-                    response = answerQuery(message.content, contextMessages=lastMessages)
+                    repliedMessage = createChatMessage(repliedMessage)
+                    lastMessages.append(repliedMessage)
+                    response = await answerQuery(message.content, chatHistory=lastMessages)
         else:
             async with message.channel.typing():
-                response = answerQuery(message.content, contextMessages=lastMessages)
+                response = await answerQuery(message.content, chatHistory=lastMessages)
 
         if response != None:
             await message.channel.send(response)
