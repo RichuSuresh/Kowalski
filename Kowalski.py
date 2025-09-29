@@ -1,5 +1,6 @@
 import discord
 from chat import answerQuery
+from messageDecider import makeDecision
 from dotenv import load_dotenv
 import os
 from langchain_core.messages import HumanMessage, AIMessage
@@ -16,10 +17,12 @@ async def on_ready():
     print("Systems online, sir. Awaiting your next order")
 
 def createChatMessage(message):
-    content = "[at: %s] [From: %s] %s" % (message.created_at, message.author, message.content)
+    content = "(%s): %s" % (message.author, message.content)
     if message.author.id == client.user.id:
+        content = "AI: %s" % content
         return AIMessage(content=content)
     else:
+        content = "Human: %s" % content
         return HumanMessage(content=content)
     
 async def getChatHistory(message, limit=10):
@@ -51,5 +54,14 @@ async def on_message(message):
 
         if response != None:
             await message.channel.send(response)
+    else:
+        lastMessages = await getChatHistory(message, limit=int(chatHistoryLimit))
+        decision = await makeDecision(message.content, chatHistory=lastMessages)
+        print(decision)
+        if decision:
+            async with message.channel.typing():
+                response = await answerQuery(message.content, chatHistory=lastMessages)
+            if response != None:
+                await message.channel.send(response)
 
 client.run(token)
