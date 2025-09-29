@@ -5,6 +5,7 @@ import os
 from langchain_core.messages import HumanMessage, AIMessage
 
 token = os.getenv("BOT_TOKEN")
+chatHistoryLimit = os.getenv("CHAT_HISTORY_LIMIT")
 intents = discord.Intents.default()
 intents.message_content = True
 
@@ -36,7 +37,7 @@ async def on_message(message):
         return
 
     if "Kowalski" in message.content or "kowalski" in message.content or (message.reference):
-        lastMessages = await getChatHistory(message, limit=3)
+        lastMessages = await getChatHistory(message, limit=int(chatHistoryLimit))
         if message.reference:
             repliedMessage = await message.channel.fetch_message(message.reference.message_id)
             if(repliedMessage.author == client.user) or ("Kowalski" in message.content or "kowalski" in message.content):
