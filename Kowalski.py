@@ -1,10 +1,13 @@
+import asyncio
 import discord
 from chat import answerQuery
 from messageDecider import makeDecision
+from messageReact import emojiReaction
 from dotenv import load_dotenv
 import os
 from langchain_core.messages import HumanMessage, AIMessage
 
+load_dotenv()
 token = os.getenv("BOT_TOKEN")
 chatHistoryLimit = os.getenv("CHAT_HISTORY_LIMIT")
 intents = discord.Intents.default()
@@ -23,6 +26,11 @@ def createChatMessage(message):
         return AIMessage(content=content)
     else:
         content = "Human: %s" % content
+        if message.reactions:
+            for reaction in message.reactions:
+                if reaction.me == True:
+                    content = "(Kowalski reacted with: %s) %s" % (reaction.emoji, content)
+                    break
         return HumanMessage(content=content)
     
 async def getChatHistory(message, limit=10):
@@ -34,12 +42,16 @@ async def getChatHistory(message, limit=10):
     messages.pop()
     return messages
 
+async def isLastMessage(message):
+    async for msg in message.channel.history(limit=1):
+        return message.id == msg.id
+
 @client.event
 async def on_message(message):
     if message.author == client.user:
         return
 
-    if "Kowalski" in message.content or "kowalski" in message.content or (message.reference):
+    async def handleMessages():
         lastMessages = await getChatHistory(message, limit=int(chatHistoryLimit))
         if message.reference:
             repliedMessage = await message.channel.fetch_message(message.reference.message_id)
@@ -47,21 +59,22 @@ async def on_message(message):
                 async with message.channel.typing():
                     repliedMessage = createChatMessage(repliedMessage)
                     lastMessages.append(repliedMessage)
-                    response = await answerQuery(message.content, chatHistory=lastMessages)
-        else:
-            async with message.channel.typing():
-                response = await answerQuery(message.content, chatHistory=lastMessages)
-
-        if response != None:
-            await message.channel.send(response)
-    else:
-        lastMessages = await getChatHistory(message, limit=int(chatHistoryLimit))
         decision = await makeDecision(message.content, chatHistory=lastMessages)
-        print(decision)
         if decision:
-            async with message.channel.typing():
-                response = await answerQuery(message.content, chatHistory=lastMessages)
-            if response != None:
-                await message.channel.send(response)
+            if decision == "chat":
+                async with message.channel.typing():
+                    response = await answerQuery(message, chatHistory=lastMessages)
+                    if response != None:
+                        if not await isLastMessage(message):
+                            await message.reply(response)
+                        else:
+                            await message.channel.send(response)
+                        
+            elif decision == "react":
+                emoji = await emojiReaction(message.content, chatHistory=lastMessages)
+                await message.add_reaction(emoji)
+            
+    
+    asyncio.create_task(handleMessages())
 
 client.run(token)

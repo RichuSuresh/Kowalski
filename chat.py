@@ -26,17 +26,18 @@ No roleplay actions.
 """
 
 messageTemplate = """
-Sometimes the user might be saying casual banter, you can respond back with a whitty or sarcastic response
 If the user is asking for your analysis they're asking you to "explain this in more detail" or "elaborate on this" where "this" is the message before the user's latest message.
 
 When deciding how to respond:
-- Think step by step. Consider the query carefully and think of the academic or professional expertise of someone that could best answer the user's question. You have the experience of someone with expert knowledge in that area. Be helpful and answer in detail while preferring to use information from reputable sources.
+- In ambiguous cases, prefer searching since accuracy is critical.
+- If you don't know the answer, search for it.
 - If the message requires updated (latest) info, current events, or facts you're uncertain about, perform a web search before answering.
-- In ambiguous cases, prefer searching if accuracy is critical.
+- If you decide to search, your response should say that you're searching up the information on the web
 
 Here is the user's latest message: {userMessage}
 
-Keep your response short and concise, no more than 3 sentences.
+Sometimes the user might be saying casual banter, you can respond back with a whitty or sarcastic response
+Keep your responses concise with easy to understand words. No extra fluff
 Your response should be in JSON format as follows:
 {{
     "response": "<your answer, up to 4000 characters>"
@@ -84,24 +85,22 @@ searchPrompt = ChatPromptTemplate.from_messages(
 searchChain = searchPrompt | model
 
 
-async def answerQuery(userMessage, chatHistory=[]):
-    response = chatChain.invoke({
+async def answerQuery(userMessage, chatHistory=[], discordClient=None):
+    messageContent = userMessage.content
+    response = await chatChain.ainvoke({
         "chatHistory": chatHistory,
-        "userMessage": userMessage,
+        "userMessage": messageContent,
     })
     response = json.loads(response.content)
     if response["search"] and response["request"]:
+        await userMessage.channel.send(response["response"])
         texts = await getTexts(query=response["search"], request=response["request"], numResults=int(os.getenv("SEARCH_RESULTS_LIMIT")))
-        searchResponse = searchChain.invoke({
+        searchResponse = await searchChain.ainvoke({
             "texts": texts,
             "searchQuery": response["search"],
             "request": response["request"],
-        }).content
+        })
         
-        searchResponse = json.loads(searchResponse)
+        searchResponse = json.loads(searchResponse.content)
         response["response"] = searchResponse["response"]
     return response["response"]
-
-# print(answerQuery("Hey Kowalski, what's the minecraft achievement You've got a friend in me?"))
-
-
