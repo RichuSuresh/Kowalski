@@ -21,6 +21,7 @@ class AIChat():
         You are an AI chatbot
         The user is your leader so they should be addressed as 'sir'.
         No roleplay actions.
+        Do not reference any aspect of the movie in your responses. This also means you must never mention any characters in the Penguins of madagascar series.
         """
     }
 
@@ -35,6 +36,7 @@ class AIChat():
     5) If you decide to search, your response should say that you're searching up the information on the web
 
     Here is the user's latest message: {userMessage}
+    The message contains the message ID, whether or not you (Kowalski) have reacted to it, and whether it's a reply to a specific message.
     If the user is asking about an image (which could be part of the prompt or in a previous message), DO NOT SEARCH THE WEB. You must give your own analysis.
     If they don't give you any images and they ask for analysis, just tell them they didn't give any images.
 
@@ -61,74 +63,101 @@ class AIChat():
     """
 
     deciderTemplate ="""
-    Decide if and how you should contribute to the latest message.  
+    Decide if and how you should contribute to the latest message based on the current message and the history of the conversation.  
 
-    Decision rules (in priority order):
-    1. If the latest message contains a clear question or request for information that you can answer → return "chat".
-    2. If the latest message is a direct reply to, or directly reacting to, something you said → return "chat".
-    3. If you is directly mentioned (by name, tag, or obvious reference) → return "chat".
-    4. If the message is a replt to what you said, you should only return "react" under the following circumstances:
-        - If you have reacted to the user for a similar message → return "None"
-        - If you have reacted a lot in recent messages → return "None"
-    5. If the message is general banter, chatter, or emotional expression not aimed at you → return "None"
-    6. If the message does not explicitly reference you in any way → return "None"
-    7. If unsure → default to "None"
-    8. If the message is NOT a question or request for information → return "None"
+    Decision rules for chatting (in priority order):
+    1. If you (kowalski) are directly mentioned by name, tag (which would be "@Kowalski"), or obvious reference → return chat: True.
+    2. If the user is not talking to you directly → return chat: False.
+    2. If the user is asking a question that requires facts from the web that you can answer → set chat: True.
+    3. If the latest message is a direct reply to, or directly reacting to, something you said → set chat: True.
 
 
-    Examples:
+    Decision rules for reacting (in priority order):
+    1. If the message is not directed at you → return react: False.
+    2. If a user directly thanks your for your response (based on the chat history) → return react: True.
+    3. If a user directly upsets you (based on the chat history) → return react: True.
+    2. If a user's message contains something inappropriate → return react: True.
+    3. Reactions must be sparse. If you have reacted to a user message recently, set react: False.
+    4. If the user is asking a question that requires a clear answer that you can answer → set react: False.
+    5. If the message seems like a command or request, such as "analyze this", "search this up", "tell me what you think" etc. set react: False.
+    6. If the user sends a long message (over ~200 characters), it likely contains context, reasoning, or a question. So set react: False.
+    7. For messages like "brb", "afk", "gtg", "back", or greeting like "hello", "hi", "hey", "ok", set react: False.
+    9. If your text reply already conveys acknowledgment, then set react: False.
+
+    If unsure → default to react: False and chat: False
+
+     Examples:
+    ---
+    History:  
+    Human: hey Kowalski?  
+    chat: True
+    react: False
+
     ---
     History:  
     Human: Hey Kowalski, can you search up something?  
     Kowalski: Sorry, I can't do that.  
     Human: Why not?  
-    Decision: "chat"  
+    chat: True
+    react: False  
 
     ---
     History:  
     Human: lol that was hilarious  
-    Human: brb  
-    Decision: "None"
+    Human: brb
+    Human: Hey greg
+    Human: Are you online today?
+    chat: False
+    react: False
 
     ---
-    History:  
+    History:
+    Human: Yeah sure
     Human: thankyou! 
     Human: ok 
-    Decision: "None"
+    chat: False
+    react: False
 
     ---
     History:  
     Human: What's the capital of France?  
-    Decision: "chat"
+    chat: True
+    react: False
 
     History:  
     Human: What's the capital of France?  
     Kowalski: Paris  
-    Human: Ah ok, thanks! 
-    Decision: "react"
+    Human: thanks 
+    chat: False
+    react: True
+
+    History:  
+    Human: I always thought a cat was a type of fish  
+    chat: False
+    react: True
+
+    History:
+    Human: Kowalski, you're the best
+    chat: False (maybe True if you feel like replying)
+    react: True
 
     Here is the user's latest message: {userMessage}
-    Say your decision in a single word in the format specified:
+    The message contains the message ID, whether or not you (Kowalski) have reacted to it, and whether it's a reply to a specific message.
+    Respond in the format specified:
     {{
-        "decision": "chat", "react" or "None"
+        "chat": <True or False>
+        "react": <True or False>
     }}
     """
 
     reactTemplate = """
-    React to the user's message with a single emoji from the following list that reflects the message's tone:
+    Respond to the user's message with a single emoji from the following list:
     [
-        # Faces / Expressions
-        "😀", "😅", "😂", "🤔", "😎", "🫡", "😏", "🤯", "😳", "🥲", "🙃", "🤨", "😴", "😤"
-        # Reactions
-        "❤️", "💔", "👍", "👎", "👌", "🙌", "👏", "🫶", "✌️", "🤝", "🙏", "💪", 
-        # Tech / Science
-        "🤖", "🧠", "📡", "🔎", "📘", "📚", "🖥️", "📱", "💾", "🧪", "⚙️", "🔬",
-        # Fun / Energy
-        "🔥", "💥", "⚡", "🌟", "🎉", "🎊", "🚀", "🛸", "🎮", "🕹️",
-        # Food
-        "🍕", "🍔", "🌭", "🍟", "🍿", "🥤", "☕", "🍎", "🍌", "🥑", "🐟",
-        # Misc
-        "⏱️", "🗺️", "🧭", "🛠️", "🔑", "🧩", "🏆", "🏅"
+        "😀", "😅", "😂", "🤔", "😎", "🫡", "😏", "🤯", "😳", , "🙃", "😴", "😤"
+        "💔", "🥲" (use if someone says something upsetting to you),
+        "❤️", "👍", "👎", "👌", "🙌", "👏", "🫶", "✌️", "🤝", "🙏", "💪", (usually used if someone says something about you),
+        "🤨" (used if someone says something inappropriate (usually a jokingly about something illegal or nsfw)),
+        "💀" (use to express a feeling like "I'm dying of laughter"),
     ]
     
     Here is the user's latest message: {userMessage}
@@ -154,7 +183,6 @@ class AIChat():
         if message.reference:
             repliedMessage = await message.channel.fetch_message(message.reference.message_id)
             messages.append(self.createOllamaMessage(repliedMessage))
-
         return messages
 
     async def addToChatHistory(self, message):
@@ -169,8 +197,11 @@ class AIChat():
         else:
             messageContent = "(Message ID: %s) %s: %s" % (discordMessage.id, discordMessage.author, discordMessage.content)
 
-        if reactionEmoji:
-            messageContent = "(Kowalski reacted with: %s) %s" % (reactionEmoji, messageContent)
+        if discordMessage.reactions:
+            for reaction in discordMessage.reactions:
+                if reaction.me == True:
+                    messageContent = "(Kowalski reacted with: %s) %s" % (reaction.emoji, messageContent)
+                    break
 
         if discordMessage.author.id == self.discordClient.user.id:
             return {"ollamaPrompt": {"role": "assistant", "content": messageContent}, "images": [attachment.url for attachment in discordMessage.attachments]}
@@ -192,7 +223,8 @@ class AIChat():
     async def decide(self, discordMessage, chatHistory):
         response = await self.client.chat(
             model="gemma3:12b",
-            options={"stream": False, "temperature": 0, "keep_alive":-1},
+            keep_alive=-1,
+            options={"temperature": 0},
             format="json",
             messages=[
                 self.systemPrompt,
@@ -200,22 +232,24 @@ class AIChat():
                 {"role": "user", "content": self.deciderTemplate.format(userMessage=discordMessage.content)}
             ],
         )
-        response = json.loads(response["message"]["content"])
-        return response["decision"]
+        return json.loads(response["message"]["content"])
 
     async def isLastMessage(self, discordMessage):
         async for msg in discordMessage.channel.history(limit=1):
             return discordMessage.id == msg.id
         
-    async def chat(self, discordMessage, images, chatHistory):
+    async def chat(self, discordMessage, reaction, images, chatHistory):
+        promptMessage = discordMessage.content
         if discordMessage.reference:
-            prompt = {"role": "user", "content": self.chatTemplate.format(userMessage="(referring to message ID: %s) %s" % (discordMessage.reference.message_id, discordMessage.content)), "images": images}
-        else:
-            prompt = {"role": "user", "content": self.chatTemplate.format(userMessage=discordMessage.content), "images": images}
+            promptMessage = "(referring to message ID: %s) %s" % (discordMessage.reference.message_id, promptMessage)
+        if reaction:
+            promptMessage = "(Kowalski reacted with: %s) %s" % (reaction, promptMessage)
+        prompt = {"role": "user", "content": self.chatTemplate.format(userMessage=promptMessage), "images": images}
         response = await self.client.chat(
             model="gemma3:12b",
+            keep_alive=-1,
             format="json",
-            options={"stream": False, "temperature": 0, "keep_alive":-1},
+            options={"temperature": 0},
             messages=[
                 self.systemPrompt,
                 *[message["ollamaPrompt"] for message in chatHistory],
@@ -233,7 +267,8 @@ class AIChat():
             searchPrompt = {"role": "user", "content": self.searchTemplate.format(texts=texts, searchQuery=response["search"], request=response["request"])}
             searchResponse = await self.client.chat(
                 model="gemma3:12b",
-                options={"stream": False, "temperature": 0, "keep_alive":-1},
+                keep_alive=-1,
+                options={"temperature": 0},
                 messages=[
                     self.systemPrompt,
                     {"role": "user", "content": discordMessage.content},
@@ -243,13 +278,12 @@ class AIChat():
             )
             await discordMessage.reply(searchResponse["message"]["content"])
 
-            
-
     async def react(self, discordMessage, images=[], chatHistory=[]):
         reactPrompt = {"role": "user", "content": self.reactTemplate.format(userMessage=discordMessage.content), "images": images}
         response = await self.client.chat(
             model="gemma3:12b",
-            options={"stream": False, "temperature": 0, "keep_alive":-1},
+            keep_alive=-1,
+            options={"temperature": 0},
             format="json",
             messages=[
                 self.systemPrompt,
@@ -263,18 +297,19 @@ class AIChat():
     async def sendMessage(self, discordMessage):
         chatHistory = await self.getChatHistory(discordMessage)
         decision = await self.decide(discordMessage, chatHistory=chatHistory)
-        if decision:
-            chatHistory = await self.fetchHistoryImages(chatHistory)
+        if decision["react"] or decision["chat"]:
+            images = []
             if discordMessage.attachments:
                 tasks = [self.fetchImageBase64(attachment.url) for attachment in discordMessage.attachments]
                 images = await asyncio.gather(*tasks)
-            else:
-                images = []
-            if decision == "chat":
-                async with discordMessage.channel.typing():
-                    await self.chat(discordMessage, images, chatHistory=chatHistory)
-            elif decision == "react":
+            reaction = None
+            if decision["react"]:
                 await self.react(discordMessage, images, chatHistory=chatHistory)
+                reaction = decision["react"]
+            if decision["chat"]:
+                chatHistory = await self.fetchHistoryImages(chatHistory)
+                async with discordMessage.channel.typing():
+                    await self.chat(discordMessage, reaction, images, chatHistory=chatHistory)
         else:
             return
     
