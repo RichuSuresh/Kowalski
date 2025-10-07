@@ -22,21 +22,5 @@ services:
               count: all
               capabilities: [gpu]
 
-  ollama-search:
-    image: ollama/ollama:latest
-    container_name: ollama-search
-    ports:
-      - "11435:11434"
-    volumes:
-      - ollama-search:/root/.ollama
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-
 volumes:
   ollama-chat:
-  ollama-search:
