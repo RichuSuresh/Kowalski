@@ -3,4 +3,4 @@
 
 AI powered discord bot. Made using Langchain, Ollama and discord.py.
 
-Kowalski is an AI chatbot designed to talk like Kowalski from the Penguins of Madagascar. He answers and responds to messages when he feels like it, or when he's addressed explicitly in the chat. He's also capable of reacting to messages. 
+Kowalski is an AI chatbot designed to talk like Kowalski from the Penguins of Madagascar. He answers and responds to messages when he feels like it, or when he's addressed explicitly in the chat. He can search the web for information, react to messages and analyse images
