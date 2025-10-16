@@ -54,7 +54,7 @@ async def fetchAndCleanText(url, session):
     except Exception as e:
         return None
 
-async def getTexts(query, request, numResults=2):
+async def getTexts(query, request, session, numResults=2):
     params = {
         'q': query,
         "format": "json",
@@ -69,10 +69,9 @@ async def getTexts(query, request, numResults=2):
     }
 
     tasks = []
-    async with aiohttp.ClientSession(headers=headers) as session:
-        async with asyncio.TaskGroup() as tg:
-            for url in urls:
-                tasks.append(tg.create_task(fetchAndCleanText(url, session)))
+    async with asyncio.TaskGroup() as tg:
+        for url in urls:
+            tasks.append(tg.create_task(fetchAndCleanText(url, session)))
     
     documents = [task.result() for task in tasks if task.result() is not None]
     await vector_store.aadd_documents(documents)
