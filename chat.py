@@ -14,7 +14,7 @@ from search import getTexts
 load_dotenv()
 ollamaUrl = os.getenv("OLLAMA_URL", "http://localhost:11434")
 redisService = RedisService(host=os.getenv("REDIS_HOST"), port=os.getenv("REDIS_PORT"), chatHistoryLimit=int(os.getenv("CHAT_HISTORY_LIMIT")))
-redisService.client.delete("261139498870636545:1422940788597198949")
+
 class AIChat():
     systemPrompt = {
         "role": "system",
@@ -102,6 +102,7 @@ class AIChat():
     1. If the user directly asks you to analyze an image sent in the current message → return imageAnalysis: True.
     2. If the user is asking about an image in a previous message → return imageAnalysis: True.
     3. If the user is asking you about an image but referring to a previous message containing an image → return imageAnalysis: True.
+    4. If the user is asking for your analysis and the previous message contains an image → return imageAnalysis: True.
 
     Decision rules for reacting (in priority order):
     1. If the message is not directed at you → return react: False.
@@ -432,5 +433,6 @@ class AIChat():
         print("Closing Discord client...")
         await self.discordClient.close()
         print("Discord client closed.")
-        redisService.client.close()
+        print("Closing Redis client...")
+        redisService.close()
         print("Redis client closed.")

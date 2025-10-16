@@ -31,29 +31,9 @@ class RedisService:
                 updatedMessage = {"role": message["role"], "content": json.dumps(messageContent), "images": message["images"]}
                 self.client.lset(redisId, i, json.dumps(updatedMessage))
                 break
-
-# redisService = RedisService(host="localhost", port=6379, chatHistoryLimit=10)
-
-# ollamaMessageContent = {"messageID": "testMessageID", "message": "testMessage", "reaction": ["testReaction"]}
-# ollamaMessage = {"role": "user", "content": json.dumps(ollamaMessageContent), "images": ["testImage"]}
-# redisService.addToChatHistory("testGuild", "testChannel", {"role": "user", "content": "message1", "images": ["testImage"]}, "head")
-# redisService.addToChatHistory("testGuild", "testChannel", {"role": "user", "content": "message2", "images": ["testImage"]}, "head")
-# redisService.addToChatHistory("testGuild", "testChannel", {"role": "user", "content": "message3", "images": ["testImage"]}, "head")
-# redisService.addToChatHistory("testGuild", "testChannel", {"role": "user", "content": "message4", "images": ["testImage"]}, "head")
-# redisService.addToChatHistory("testGuild", "testChannel", {"role": "user", "content": "message5", "images": ["testImage"]}, "head")
-# redisService.addToChatHistory("testGuild", "testChannel", {"role": "user", "content": "message6", "images": ["testImage"]}, "head")
-# redisService.addToChatHistory("testGuild", "testChannel", {"role": "user", "content": "message7", "images": ["testImage"]}, "head")
-# redisService.addToChatHistory("testGuild", "testChannel", {"role": "user", "content": "message8", "images": ["testImage"]}, "head")
-# redisService.addToChatHistory("testGuild", "testChannel", {"role": "user", "content": "message9", "images": ["testImage"]}, "head")
-# redisService.addToChatHistory("testGuild", "testChannel", {"role": "user", "content": "message10", "images": ["testImage"]}, "head")
-# redisService.addToChatHistory("testGuild", "testChannel", {"role": "user", "content": "message11", "images": ["testImage"]}, "head")
-# redisService.addToChatHistory("testGuild", "testChannel", {"role": "user", "content": "message12", "images": ["testImage"]}, "head")
-# redisService.addToChatHistory("testGuild", "testChannel", {"role": "user", "content": "message13", "images": ["testImage"]}, "head")
-
-# history = redisService.getChatHistory(261139498870636545, 1422940788597198949)
-# print(history)
-# print(len(history))
-# print(redisService.channelExists(261139498870636545, 1422940788597198949))
-# redisService.client.delete("testGuild:testChannel")
-
-# redisService.client.close()
+    
+    def close(self):
+        print("Flushing redis...")
+        self.client.flushall()
+        print("Redis flushed.")
+        self.client.close()
