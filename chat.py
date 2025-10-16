@@ -8,10 +8,12 @@ from ollama import AsyncClient, Client
 from dotenv import load_dotenv
 import os
 
+from redisService import RedisService
 from search import getTexts
 
 load_dotenv()
 ollamaUrl = os.getenv("OLLAMA_URL", "http://localhost:11434")
+redisService = RedisService(host=os.getenv("REDIS_HOST"), port=os.getenv("REDIS_PORT"), chatHistoryLimit=int(os.getenv("CHAT_HISTORY_LIMIT")))
 
 class AIChat():
     systemPrompt = {
@@ -25,27 +27,52 @@ class AIChat():
         """
     }
 
+    imageChatTemplate = """
+    The user is asking for your analysis on an image. You must first give your own analysis without searching.
+
+    When deciding how to respond use this in priority order:
+    1. Use your own knowledge to answer the user's query related to the image
+    2. If the user is asking specifically for the latest information about the image, perform a web search before answering.
+    3. If you decide to search, your response should say that you're searching up the information on the web
+
+    Here is the user's latest message: {userMessage}
+    "messageID" is the ID of the message. "author" is the author of the message. "messageContent" is the text contents of the message.
+    "referenceID" is the ID of the message that this message is a reply to, which may be empty if the message is not a reply.
+    "reactions" is list of how YOU reacted to the message.
+    "attachments" is a list of URLs of any images attached to the message.
+
+    Keep your responses concise with easy to understand words. No extra fluff
+    Your response should be in JSON format as follows (including when analysing images):
+    {{
+        "response": "<your answer, up to 4000 characters>"
+        "request": "<(optional) original query from the user but revised to be more complete>"
+        "search": "<(optional) search query>"
+    }}
+    """
+
     chatTemplate = """
     If the user is asking for your analysis they're asking you to "explain this in more detail" or "elaborate on this" where "this" is the message before the user's latest message.
 
     When deciding how to respond use this in priority order:
-    1) If the user is asking for image analysis, DO NOT SEARCH THE WEB. You must give your own analysis.
-    2) In ambiguous cases, prefer searching since accuracy is critical.
-    3) If you don't know the answer, search for it.
-    4) If the message requires updated (latest) info, current events, or facts you're uncertain about, perform a web search before answering.
-    5) If you decide to search, your response should say that you're searching up the information on the web
+    1. In ambiguous cases, prefer searching since accuracy is critical.
+    2. If you don't know the answer, search for it.
+    3. If the message requires updated and latest info, current events, or facts you're uncertain about, perform a web search before answering.
+    4. If you decide to search, your response should say that you're searching up the information on the web
+
+    If you decide to search, your search query must not infer any information or dates from the user's message since your data is out of date.
 
     Here is the user's latest message: {userMessage}
-    The message contains the message ID, whether or not you (Kowalski) have reacted to it, and whether it's a reply to a specific message.
-    If the user is asking about an image (which could be part of the prompt or in a previous message), DO NOT SEARCH THE WEB. You must give your own analysis.
-    If they don't give you any images and they ask for analysis, just tell them they didn't give any images.
+    "messageID" is the ID of the message. "author" is the author of the message. "messageContent" is the text contents of the message.
+    "referenceID" is the ID of the message that this message is a reply to, which may be empty if the message is not a reply.
+    "reactions" is list of how YOU reacted to the message.
+    "attachments" is a list of URLs of any images attached to the message.
 
     Sometimes the user might be saying casual banter, you can respond back with a whitty or sarcastic response
     Keep your responses concise with easy to understand words. No extra fluff
     Your response should be in JSON format as follows (including when analysing images):
     {{
         "response": "<your answer, up to 4000 characters>"
-        "request": "<(optional) original query from the user but revised to be a more specific question>"
+        "request": "<(optional) original query from the user but revised to be more complete>"
         "search": "<(optional) search query>"
     }}
     """
@@ -71,6 +98,11 @@ class AIChat():
     2. If the user is asking a question that requires facts from the web that you can answer → set chat: True.
     3. If the latest message is a direct reply to, or directly reacting to, something you said → set chat: True.
 
+    Decision rules for image analysis (in priority order):
+    1. If the user directly asks you to analyze an image sent in the current message → return imageAnalysis: True.
+    2. If the user is asking about an image in a previous message → return imageAnalysis: True.
+    3. If the user is asking you about an image but referring to a previous message containing an image → return imageAnalysis: True.
+    4. If the user is asking for your analysis and the previous message contains an image → return imageAnalysis: True.
 
     Decision rules for reacting (in priority order):
     1. If the message is not directed at you → return react: False.
@@ -83,75 +115,159 @@ class AIChat():
     6. If the user sends a long message (over ~200 characters), it likely contains context, reasoning, or a question. So set react: False.
     7. For messages like "brb", "afk", "gtg", "back", or greeting like "hello", "hi", "hey", "ok", set react: False.
     9. If your text reply already conveys acknowledgment, then set react: False.
+    10. If the user posts a funny meme or image, set react: True.
 
-    If unsure → default to react: False and chat: False
+    USE THE MESSAGE HISTORY TO INFORM YOUR DECISION
+    In all cases where your are required to analyse an image, you must return chat: True, other than where the user posts a funny image where you can set react: True
+    If unsure → default to react: False, chat: False, imageAnalysis: False
 
-     Examples:
+    Examples:
     ---
-    History:  
+    A user starts a conversation with you
+    current message:  
     Human: hey Kowalski?  
     chat: True
     react: False
+    imageAnalysis: False
 
     ---
-    History:  
-    Human: Hey Kowalski, can you search up something?  
-    Kowalski: Sorry, I can't do that.  
-    Human: Why not?  
-    chat: True
-    react: False  
-
-    ---
+    Background chatter which you should ignore
     History:  
     Human: lol that was hilarious  
     Human: brb
     Human: Hey greg
+
+    current message:
     Human: Are you online today?
     chat: False
     react: False
+    imageAnalysis: False
 
     ---
-    History:
-    Human: Yeah sure
-    Human: thankyou! 
-    Human: ok 
+    A user asks you a direct question, thanks you for your response, and then starts background chatter
+    History:  
+    {{"messageID": "1234567",
+    "author": "greg",
+    "messageContent": "what's the capital of france?",
+    "referenceID": "",
+    "reactions": [],
+    "attachments": []}}  
+    {{"messageID": "123454242",
+    "author": "Kowalski",
+    "messageContent": "Paris is the capital of france",
+    "referenceID": "",
+    "reactions": [],
+    "attachments": []}}
+    {{"messageID": "314124214",
+    "author": "greg",
+    "messageContent": "thankyou",
+    "referenceID": "",
+    "reactions": [👍],
+    "attachments": []}}
+
+    current message:
+    {{"messageID": "35122156256",
+    "author": "greg",
+    "messageContent": "ok",
+    "referenceID": "",
+    "reactions": [],
+    "attachments": []}} 
     chat: False
     react: False
+    imageAnalysis: False
 
     ---
-    History:  
-    Human: What's the capital of France?  
+    A user compliments you
+    current message:
+    {{"messageID": "1234567",
+    "author": "greg",
+    "messageContent": "Kowalski you're the best",
+    "referenceID": "",
+    "reactions": [],
+    "attachments": []}}  
+    chat: False (or true if you want to chat)
+    react: True
+
+    ---
+    A user asks you to analyse an image in the current message
+    current message:
+    {{"messageID": "1234567",
+    "author": "greg",
+    "messageContent": "Kowalski analysis",
+    "referenceID": "",
+    "reactions": [],
+    "attachments": [someImageURL]}}
     chat: True
     react: False
+    imageAnalysis: True
 
-    History:  
-    Human: What's the capital of France?  
-    Kowalski: Paris  
-    Human: thanks 
-    chat: False
-    react: True
-
-    History:  
-    Human: I always thought a cat was a type of fish  
-    chat: False
-    react: True
-
+    ---
+    A user sends an image in one message and then asks you to analyse it in a separate message
     History:
-    Human: Kowalski, you're the best
-    chat: False (maybe True if you feel like replying)
-    react: True
+    {{"messageID": "1234567",
+    "author": "greg",
+    "messageContent": "",
+    "referenceID": "",
+    "reactions": [🫡],
+    "attachments": [someImageURL]}}
 
-    Here is the user's latest message: {userMessage}
-    The message contains the message ID, whether or not you (Kowalski) have reacted to it, and whether it's a reply to a specific message.
+    current message:
+    {{"messageID": "123456",
+    "author": "greg",
+    "messageContent": "Kowalski analysis",
+    "referenceID": "",
+    "reactions": [],
+    "attachments": []}}
+    chat: True
+    react: False
+    imageAnalysis: True
+
+    ---
+    A user sends an image in one message, starts background chatter, then asks you to analyse an image in the first message by referring to it in the referenceID
+    History:
+    {{"messageID": "1234567",
+    "author": "greg",
+    "messageContent": "",
+    "referenceID": "",
+    "reactions": [],
+    "attachments": [someImageURL]}}
+    {{"messageID": "35122156256",
+    "author": "greg",
+    "messageContent": "ok",
+    "referenceID": "",
+    "reactions": [],
+    "attachments": []}} 
+    chat: False
+    react: False
+    imageAnalysis: False
+
+    current message:
+    {{"messageID": "123456",
+    "author": "greg",
+    "messageContent": "Kowalski analysis",
+    "referenceID": "1234567",
+    "reactions": [],
+    "attachments": []}}
+    chat: True
+    react: False
+    imageAnalysis: True
+
+    Here is the user's latest message in JSON form: {userMessage}
+    "messageID" is the ID of the message. "author" is the author of the message. "messageContent" is the text contents of the message.
+    "referenceID" is the ID of the message that this message is a reply to, which may be empty if the message is not a reply.
+    "reactions" is list of how YOU reacted to the message.
+    "attachments" is a list of URLs of any images attached to the message.
+    If the user is asking for image analysis from a previous message, set imageAnalysis: True
     Respond in the format specified:
     {{
         "chat": <True or False>
         "react": <True or False>
+        "imageAnalysis": <True or False>
     }}
     """
 
     reactTemplate = """
-    Respond to the user's message with a single emoji from the following list:
+    Respond to the user's message/image with a single emoji from the following list:
     [
         "😀", "😅", "😂", "🤔", "😎", "🫡", "😏", "🤯", "😳", , "🙃", "😴", "😤"
         "💔", "🥲" (use if someone says something upsetting to you),
@@ -161,66 +277,64 @@ class AIChat():
     ]
     
     Here is the user's latest message: {userMessage}
+    "messageID" is the ID of the message. "author" is the author of the message. "messageContent" is the text contents of the message.
+    "referenceID" is the ID of the message that this message is a reply to, which may be empty if the message is not a reply.
+    "reactions" is list of how YOU reacted to the message.
+    "attachments" is a list of URLs of any images attached to the message.
     Say your decision as a single emoji in the following format:
     {{
         "reaction": "<emoji>"
     }}
     """
     
-    def __init__(self, discordClient, session):
+    def __init__(self, discordClient, session, chatHistoryLimit):
         self.client = AsyncClient(
             host=ollamaUrl,
         )
         self.chatHistory = []
         self.discordClient = discordClient
         self.session = session
+        self.chatHistoryLimit = chatHistoryLimit
     
-    async def getChatHistory(self, message):
-        messages = []
-        async for msg in message.channel.history(limit=10+1):
-            messages.append(self.createOllamaMessage(msg))
-        messages = messages[:0:-1]
-        if message.reference:
-            repliedMessage = await message.channel.fetch_message(message.reference.message_id)
-            messages.append(self.createOllamaMessage(repliedMessage))
-        return messages
-
-    async def addToChatHistory(self, message):
-        message = self.createOllamaMessage(message)
-        self.chatHistory.append(message)
-        if len(self.chatHistory) > 10:
-            self.chatHistory = self.chatHistory[-10:]
-    
-    def createOllamaMessage(self, discordMessage, reactionEmoji=None):
+    async def getChatHistory(self, discordMessage):
+        if not redisService.channelExists(discordMessage.guild.id, discordMessage.channel.id):
+            async for msg in discordMessage.channel.history(limit=self.chatHistoryLimit+1):
+                if msg.id != discordMessage.id:
+                    msg = await self.createOllamaMessage(msg)
+                    redisService.addToChatHistory(discordMessage.guild.id, discordMessage.channel.id, msg, location="head")
+        
+        messages = redisService.getChatHistory(discordMessage.guild.id, discordMessage.channel.id)
         if discordMessage.reference:
-            messageContent = "(Message ID: %s) (Replied to: %s) %s: %s " % (discordMessage.id, discordMessage.reference.message_id, discordMessage.author, discordMessage.content)
-        else:
-            messageContent = "(Message ID: %s) %s: %s" % (discordMessage.id, discordMessage.author, discordMessage.content)
-
-        if discordMessage.reactions:
-            for reaction in discordMessage.reactions:
-                if reaction.me == True:
-                    messageContent = "(Kowalski reacted with: %s) %s" % (reaction.emoji, messageContent)
-                    break
-
-        if discordMessage.author.id == self.discordClient.user.id:
-            return {"ollamaPrompt": {"role": "assistant", "content": messageContent}, "images": [attachment.url for attachment in discordMessage.attachments]}
-        else:
-            return {"ollamaPrompt": {"role": "user", "content": messageContent}, "images": [attachment.url for attachment in discordMessage.attachments]}
+            repliedMessage = await discordMessage.channel.fetch_message(discordMessage.reference.message_id)
+            messages.append(await self.createOllamaMessage(repliedMessage))
+        return messages
     
-    async def fetchHistoryImages(self, chatHistory):
-        for message in chatHistory:
-            if len(message["images"]) > 0:
-                tasks = [self.fetchImageBase64(imageUrl) for imageUrl in message["images"]]
-                message["ollamaPrompt"]["images"] = await asyncio.gather(*tasks)
-        return chatHistory
+    def getMessageContent(self, discordMessage):
+        messageContent = {
+            "messageID": discordMessage.id,
+            "author": discordMessage.author.global_name if discordMessage.author.global_name != None else discordMessage.author.name,
+            "messageContent": discordMessage.content,
+            "referenceID": discordMessage.reference.message_id if discordMessage.reference else "",
+            "reactions": [reaction.emoji for reaction in discordMessage.reactions if reaction.me == True],
+            "attachments": [attachment.url for attachment in discordMessage.attachments]
+        }
+        return json.dumps(messageContent)
+    
+    async def createOllamaMessage(self, discordMessage, images=None):
+        messageContent = self.getMessageContent(discordMessage)
+        if images is None:
+            images = await asyncio.gather(*[self.fetchImageBase64(attachment.url) for attachment in discordMessage.attachments])
+        if discordMessage.author.id == self.discordClient.user.id:
+            return {"role": "assistant", "content": messageContent, "images": images}
+        else:
+            return {"role": "user", "content": messageContent, "images": images}
     
     async def fetchImageBase64(self, url):
         async with self.session.get(url) as resp:
             data = await resp.read()
         return base64.b64encode(data).decode("utf-8")
     
-    async def decide(self, discordMessage, chatHistory):
+    async def decide(self, discordMessage, images, chatHistory):
         response = await self.client.chat(
             model="gemma3:12b",
             keep_alive=-1,
@@ -228,8 +342,8 @@ class AIChat():
             format="json",
             messages=[
                 self.systemPrompt,
-                *[message["ollamaPrompt"] for message in chatHistory],
-                {"role": "user", "content": self.deciderTemplate.format(userMessage=discordMessage.content)}
+                *chatHistory,
+                {"role": "user", "content": self.deciderTemplate.format(userMessage=self.getMessageContent(discordMessage)), "images": images}
             ],
         )
         return json.loads(response["message"]["content"])
@@ -238,13 +352,13 @@ class AIChat():
         async for msg in discordMessage.channel.history(limit=1):
             return discordMessage.id == msg.id
         
-    async def chat(self, discordMessage, reaction, images, chatHistory):
-        promptMessage = discordMessage.content
-        if discordMessage.reference:
-            promptMessage = "(referring to message ID: %s) %s" % (discordMessage.reference.message_id, promptMessage)
-        if reaction:
-            promptMessage = "(Kowalski reacted with: %s) %s" % (reaction, promptMessage)
-        prompt = {"role": "user", "content": self.chatTemplate.format(userMessage=promptMessage), "images": images}
+    async def chat(self, discordMessage, images, imageAnalysis, chatHistory):
+        if imageAnalysis:
+            promptMessage = self.imageChatTemplate.format(userMessage=self.getMessageContent(discordMessage))
+        else:
+            promptMessage = self.chatTemplate.format(userMessage=self.getMessageContent(discordMessage))
+        
+        prompt = {"role": "user", "content": promptMessage, "images": images}
         response = await self.client.chat(
             model="gemma3:12b",
             keep_alive=-1,
@@ -252,18 +366,18 @@ class AIChat():
             options={"temperature": 0},
             messages=[
                 self.systemPrompt,
-                *[message["ollamaPrompt"] for message in chatHistory],
+                *chatHistory,
                 prompt
             ],
         )
         response = json.loads(response["message"]["content"])
-        
         if not await self.isLastMessage(discordMessage):
-            await discordMessage.reply(response["response"])
+            responseMessage = await discordMessage.reply(response["response"])
         else:
-            await discordMessage.channel.send(response["response"])
+            responseMessage = await discordMessage.channel.send(response["response"])
+        redisService.addToChatHistory(discordMessage.guild.id, discordMessage.channel.id, await self.createOllamaMessage(responseMessage), "tail")
         if response["search"] and response["request"]:
-            texts = await getTexts(query=response["search"], request=response["request"], numResults=int(os.getenv("SEARCH_RESULTS_LIMIT")))
+            texts = await getTexts(query=response["search"], session=self.session, request=response["request"], numResults=int(os.getenv("SEARCH_RESULTS_LIMIT")))
             searchPrompt = {"role": "user", "content": self.searchTemplate.format(texts=texts, searchQuery=response["search"], request=response["request"])}
             searchResponse = await self.client.chat(
                 model="gemma3:12b",
@@ -276,7 +390,9 @@ class AIChat():
                     searchPrompt
                 ],
             )
-            await discordMessage.reply(searchResponse["message"]["content"])
+            responseMessage = await discordMessage.reply(searchResponse["message"]["content"])
+            redisService.addToChatHistory(discordMessage.guild.id, discordMessage.channel.id, await self.createOllamaMessage(responseMessage), "tail")
+        return
 
     async def react(self, discordMessage, images=[], chatHistory=[]):
         reactPrompt = {"role": "user", "content": self.reactTemplate.format(userMessage=discordMessage.content), "images": images}
@@ -287,32 +403,36 @@ class AIChat():
             format="json",
             messages=[
                 self.systemPrompt,
-                *[message["ollamaPrompt"] for message in chatHistory],
+                *chatHistory,
                 reactPrompt
             ],
         )
         response = json.loads(response["message"]["content"])
-        await discordMessage.add_reaction(response["reaction"])
+        asyncio.create_task(discordMessage.add_reaction(response["reaction"]))
+        redisService.addReaction(discordMessage.guild.id, discordMessage.channel.id, discordMessage.id, response["reaction"])
+        return
     
     async def sendMessage(self, discordMessage):
-        chatHistory = await self.getChatHistory(discordMessage)
-        decision = await self.decide(discordMessage, chatHistory=chatHistory)
+        chatHistory, images = await asyncio.gather(self.getChatHistory(discordMessage), asyncio.gather(*[self.fetchImageBase64(attachment.url) for attachment in discordMessage.attachments]))
+        decision = await self.decide(discordMessage, images, chatHistory=chatHistory)
+        redisService.addToChatHistory(discordMessage.guild.id, discordMessage.channel.id, await self.createOllamaMessage(discordMessage, images), location="tail")
         if decision["react"] or decision["chat"]:
-            images = []
-            if discordMessage.attachments:
-                tasks = [self.fetchImageBase64(attachment.url) for attachment in discordMessage.attachments]
-                images = await asyncio.gather(*tasks)
-            reaction = None
             if decision["react"]:
                 await self.react(discordMessage, images, chatHistory=chatHistory)
-                reaction = decision["react"]
+            
             if decision["chat"]:
-                chatHistory = await self.fetchHistoryImages(chatHistory)
                 async with discordMessage.channel.typing():
-                    await self.chat(discordMessage, reaction, images, chatHistory=chatHistory)
+                    await self.chat(discordMessage, images, imageAnalysis=decision["imageAnalysis"], chatHistory=chatHistory)
         else:
             return
     
     async def close(self):
-        print("Closing AIChat session...")
+        print("Closing aiohttp session...")
         await self.session.close()
+        print("aiohttp session closed.")
+        print("Closing Discord client...")
+        await self.discordClient.close()
+        print("Discord client closed.")
+        print("Closing Redis client...")
+        redisService.close()
+        print("Redis client closed.")
