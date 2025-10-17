@@ -19,6 +19,34 @@ class RedisService:
         elif location == "tail":
             self.client.rpush(str(guildId) +":"+ str(channelId), json.dumps(ollamaMessage))
         self.client.ltrim(str(guildId) +":"+ str(channelId), -self.chatHistoryLimit, -1)
+        return
+    
+    async def editChatHistoryMessage(self, guildId, channelId, messageId, ollamaMessage):
+        if not self.channelExists(guildId, channelId):
+            return
+        redisId = str(guildId) +":"+ str(channelId)
+        for i, message in enumerate(self.client.lrange(redisId, 0, -1)):
+            messageJson = json.loads(message)
+            messageContent = json.loads(messageJson["content"])
+            currentId = messageContent["messageID"]
+            if int(messageId) == currentId:
+                self.client.lset(redisId, i, json.dumps(ollamaMessage))
+                break
+        return
+
+    async def deleteChatHistory(self, guildId, channelId, messageId):
+        if not self.channelExists(guildId, channelId):
+            return
+        
+        redisId = str(guildId) +":"+ str(channelId)
+        for i, message in enumerate(self.client.lrange(redisId, 0, -1)):
+            messageJson = json.loads(message)
+            messageContent = json.loads(messageJson["content"])
+            currentId = messageContent["messageID"]
+            if messageId == currentId:
+                self.client.lrem(redisId, 1, message)
+                break
+        return
     
     def addReaction(self, guildId, channelId, messageId, reaction):
         redisId = str(guildId) +":"+ str(channelId)
@@ -31,6 +59,7 @@ class RedisService:
                 updatedMessage = {"role": message["role"], "content": json.dumps(messageContent), "images": message["images"]}
                 self.client.lset(redisId, i, json.dumps(updatedMessage))
                 break
+        return
     
     def close(self):
         print("Flushing redis...")

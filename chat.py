@@ -2,18 +2,14 @@ import asyncio
 import base64
 import json
 
-import aiohttp
-from langchain_ollama import ChatOllama
-from ollama import AsyncClient, Client
+from ollama import AsyncClient
 from dotenv import load_dotenv
 import os
 
-from redisService import RedisService
 from search import getTexts
 
 load_dotenv()
 ollamaUrl = os.getenv("OLLAMA_URL", "http://localhost:11434")
-redisService = RedisService(host=os.getenv("REDIS_HOST"), port=os.getenv("REDIS_PORT"), chatHistoryLimit=int(os.getenv("CHAT_HISTORY_LIMIT")))
 
 class AIChat():
     systemPrompt = {
@@ -288,23 +284,24 @@ class AIChat():
     }}
     """
     
-    def __init__(self, discordClient, session, chatHistoryLimit):
+    def __init__(self, discordClient, session, redisService, chatHistoryLimit):
         self.client = AsyncClient(
             host=ollamaUrl,
         )
         self.chatHistory = []
         self.discordClient = discordClient
+        self.redisService = redisService
         self.session = session
         self.chatHistoryLimit = chatHistoryLimit
     
     async def getChatHistory(self, discordMessage):
-        if not redisService.channelExists(discordMessage.guild.id, discordMessage.channel.id):
+        if not self.redisService.channelExists(discordMessage.guild.id, discordMessage.channel.id):
             async for msg in discordMessage.channel.history(limit=self.chatHistoryLimit+1):
                 if msg.id != discordMessage.id:
                     msg = await self.createOllamaMessage(msg)
-                    redisService.addToChatHistory(discordMessage.guild.id, discordMessage.channel.id, msg, location="head")
+                    self.redisService.addToChatHistory(discordMessage.guild.id, discordMessage.channel.id, msg, location="head")
         
-        messages = redisService.getChatHistory(discordMessage.guild.id, discordMessage.channel.id)
+        messages = self.redisService.getChatHistory(discordMessage.guild.id, discordMessage.channel.id)
         if discordMessage.reference:
             repliedMessage = await discordMessage.channel.fetch_message(discordMessage.reference.message_id)
             messages.append(await self.createOllamaMessage(repliedMessage))
@@ -376,7 +373,7 @@ class AIChat():
             responseMessage = await discordMessage.reply(response["response"])
         else:
             responseMessage = await discordMessage.channel.send(response["response"])
-        redisService.addToChatHistory(discordMessage.guild.id, discordMessage.channel.id, await self.createOllamaMessage(responseMessage), "tail")
+        self.redisService.addToChatHistory(discordMessage.guild.id, discordMessage.channel.id, await self.createOllamaMessage(responseMessage), "tail")
         if response["search"] and response["request"]:
             texts = await getTexts(query=response["search"], session=self.session, request=response["request"], numResults=int(os.getenv("SEARCH_RESULTS_LIMIT")))
             searchPrompt = {"role": "user", "content": self.searchTemplate.format(texts=texts, searchQuery=response["search"], request=response["request"])}
@@ -392,7 +389,7 @@ class AIChat():
                 ],
             )
             responseMessage = await discordMessage.reply(searchResponse["message"]["content"])
-            redisService.addToChatHistory(discordMessage.guild.id, discordMessage.channel.id, await self.createOllamaMessage(responseMessage), "tail")
+            self.redisService.addToChatHistory(discordMessage.guild.id, discordMessage.channel.id, await self.createOllamaMessage(responseMessage), "tail")
         return
 
     async def react(self, discordMessage, images=[], chatHistory=[]):
@@ -410,13 +407,13 @@ class AIChat():
         )
         response = json.loads(response["message"]["content"])
         asyncio.create_task(discordMessage.add_reaction(response["reaction"]))
-        redisService.addReaction(discordMessage.guild.id, discordMessage.channel.id, discordMessage.id, response["reaction"])
+        self.redisService.addReaction(discordMessage.guild.id, discordMessage.channel.id, discordMessage.id, response["reaction"])
         return
     
     async def sendMessage(self, discordMessage):
         chatHistory, images = await asyncio.gather(self.getChatHistory(discordMessage), asyncio.gather(*[self.fetchImageBase64(attachment.url) for attachment in discordMessage.attachments]))
         decision = await self.decide(discordMessage, images, chatHistory=chatHistory)
-        redisService.addToChatHistory(discordMessage.guild.id, discordMessage.channel.id, await self.createOllamaMessage(discordMessage, images), location="tail")
+        self.redisService.addToChatHistory(discordMessage.guild.id, discordMessage.channel.id, await self.createOllamaMessage(discordMessage, images), location="tail")
         if decision["react"] or decision["chat"]:
             if decision["react"]:
                 await self.react(discordMessage, images, chatHistory=chatHistory)
@@ -435,5 +432,5 @@ class AIChat():
         await self.discordClient.close()
         print("Discord client closed.")
         print("Closing Redis client...")
-        redisService.close()
+        self.redisService.close()
         print("Redis client closed.")
