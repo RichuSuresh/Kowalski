@@ -32,7 +32,9 @@ class AIChat():
     3. If you decide to search, your response should say that you're searching up the information on the web
 
     Here is the user's latest message: {userMessage}
-    "messageID" is the ID of the message. "author" is the author of the message. "messageContent" is the text contents of the message.
+    Here is how YOU reacted to the message (this be None if you haven't reacted): {reaction}
+    "messageID" is the ID of the message. "author" is the author of the message. 
+    "messageContent" is the text contents of the message. If this is empty or does NOT contain a query, simply comment image (if it's funny, talk about how it's funny).
     "referenceID" is the ID of the message that this message is a reply to, which may be empty if the message is not a reply.
     "reactions" is list of how YOU reacted to the message.
     "attachments" is a list of URLs of any images attached to the message.
@@ -59,6 +61,7 @@ class AIChat():
     When you reword the user's request to be more specific, make sure it's short, concise and easy to understand
 
     Here is the user's latest message: {userMessage}
+    Here is how YOU reacted to the message (this be None if you haven't reacted): {reaction}
     "messageID" is the ID of the message. "author" is the author of the message. "messageContent" is the text contents of the message.
     "referenceID" is the ID of the message that this message is a reply to, which may be empty if the message is not a reply.
     "reactions" is list of how YOU reacted to the message.
@@ -116,6 +119,7 @@ class AIChat():
 
     USE THE MESSAGE HISTORY TO INFORM YOUR DECISION
     In all cases where your are required to analyse an image, you must return chat: True, other than where the user posts a funny image where you can set react: True
+    This means that you can also set chat: True, react: True, imageAnalysis: True if need be.
     If unsure → default to react: False, chat: False, imageAnalysis: False
 
     Examples:
@@ -138,6 +142,33 @@ class AIChat():
     Human: Are you online today?
     chat: False
     react: False
+    imageAnalysis: False
+
+    ---
+    A user sends a funny image in the chat
+    A user asks you to react to a message and chat as well
+    current message:
+    {{"messageID": "35122156256",
+    "author": "greg",
+    "messageContent": "",
+    "referenceID": "",
+    "reactions": [],
+    "attachments": [funny image URL]}} 
+    chat: True
+    react: True
+    imageAnalysis: True
+
+    ---
+    A user asks you to react to a message and chat as well
+    current message:
+    {{"messageID": "35122156256",
+    "author": "greg",
+    "messageContent": "Kowalski, react to this message and tell me what emoji you used as well",
+    "referenceID": "",
+    "reactions": [],
+    "attachments": []}} 
+    chat: True
+    react: True
     imageAnalysis: False
 
     ---
@@ -182,7 +213,7 @@ class AIChat():
     "referenceID": "",
     "reactions": [],
     "attachments": []}}  
-    chat: False (or true if you want to chat)
+    chat: True or False
     react: True
 
     ---
@@ -350,11 +381,11 @@ class AIChat():
         async for msg in discordMessage.channel.history(limit=1):
             return discordMessage.id == msg.id
         
-    async def chat(self, discordMessage, images, imageAnalysis, chatHistory):
+    async def chat(self, discordMessage, images, imageAnalysis, chatHistory, reaction):
         if imageAnalysis:
-            promptMessage = self.imageChatTemplate.format(userMessage=self.getMessageContent(discordMessage))
+            promptMessage = self.imageChatTemplate.format(userMessage=self.getMessageContent(discordMessage), reaction=reaction)
         else:
-            promptMessage = self.chatTemplate.format(userMessage=self.getMessageContent(discordMessage))
+            promptMessage = self.chatTemplate.format(userMessage=self.getMessageContent(discordMessage), reaction=reaction)
         
         prompt = {"role": "user", "content": promptMessage, "images": images}
         response = await self.client.chat(
@@ -408,19 +439,20 @@ class AIChat():
         response = json.loads(response["message"]["content"])
         asyncio.create_task(discordMessage.add_reaction(response["reaction"]))
         self.redisService.addReaction(discordMessage.guild.id, discordMessage.channel.id, discordMessage.id, response["reaction"])
-        return
+        return response["reaction"]
     
     async def sendMessage(self, discordMessage):
         chatHistory, images = await asyncio.gather(self.getChatHistory(discordMessage), asyncio.gather(*[self.fetchImageBase64(attachment.url) for attachment in discordMessage.attachments]))
         decision = await self.decide(discordMessage, images, chatHistory=chatHistory)
         self.redisService.addToChatHistory(discordMessage.guild.id, discordMessage.channel.id, await self.createOllamaMessage(discordMessage, images), location="tail")
         if decision["react"] or decision["chat"]:
+            reaction = None
             if decision["react"]:
-                await self.react(discordMessage, images, chatHistory=chatHistory)
+                reaction = await self.react(discordMessage, images, chatHistory=chatHistory)
             
             if decision["chat"]:
                 async with discordMessage.channel.typing():
-                    await self.chat(discordMessage, images, imageAnalysis=decision["imageAnalysis"], chatHistory=chatHistory)
+                    await self.chat(discordMessage, images, imageAnalysis=decision["imageAnalysis"], chatHistory=chatHistory, reaction=reaction)
         else:
             return
     
