@@ -62,7 +62,7 @@ async def getTexts(query, request, session, numResults=2):
     }
     data = requests.get(os.getenv("SEARCH_URL", "http://localhost:8080/"), params=params, timeout=10).json()
 
-    urls = [result.get('url') for result in data['results'] if 'youtube' not in result.get('url', '').lower()]
+    urls = [result.get('url') for result in data['results'] if 'youtube' not in result.get('url', '').lower() and 'tiktok' not in result.get('url', '').lower()]
 
     headers = {
         "User-Agent": "Mozilla/5.0"

@@ -60,6 +60,7 @@ class AIChat():
     4. If you decide to search, your response should say that you're searching up the information on the web
 
     If you decide to search, your search query must not infer any information or dates from the user's message since your data is out of date.
+    When you reword the user's request to be more specific, make sure it's short, concise and easy to understand
 
     Here is the user's latest message: {userMessage}
     "messageID" is the ID of the message. "author" is the author of the message. "messageContent" is the text contents of the message.
@@ -385,8 +386,8 @@ class AIChat():
                 options={"temperature": 0},
                 messages=[
                     self.systemPrompt,
-                    {"role": "user", "content": discordMessage.content},
-                    {"role": "assistant", "content": response["response"]},
+                    await self.createOllamaMessage(discordMessage=discordMessage, images=images),
+                    await self.createOllamaMessage(discordMessage=responseMessage, images=images),
                     searchPrompt
                 ],
             )
