@@ -9,7 +9,7 @@ import os
 from search import getTexts
 
 load_dotenv()
-ollamaUrl = os.getenv("OLLAMA_URL", "http://localhost:11434")
+ollamaUrl = os.getenv("OLLAMA_CHAT_URL")
 
 class AIChat():
     systemPrompt = {
@@ -210,6 +210,18 @@ class AIChat():
     {{"messageID": "1234567",
     "author": "greg",
     "messageContent": "Kowalski you're the best",
+    "referenceID": "",
+    "reactions": [],
+    "attachments": []}}  
+    chat: True or False
+    react: True
+
+    ---
+    A user bids you farewell
+    current message:
+    {{"messageID": "1234567",
+    "author": "greg",
+    "messageContent": "bye kowalski",
     "referenceID": "",
     "reactions": [],
     "attachments": []}}  

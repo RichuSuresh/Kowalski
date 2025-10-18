@@ -1,4 +1,16 @@
 services:
+  kowalski-bot:
+    build:
+      context: .
+    container_name: kowalski-bot
+    env_file: ".env"
+    depends_on:
+      - ollama-chat
+      - kowalski-redis
+      - searxng
+    restart: unless-stopped
+
+
   searxng:
     image: searxng/searxng:latest
     container_name: searxng
@@ -27,6 +39,6 @@ services:
     container_name: kowalski-redis
     ports:
       - "6379:6379"
-
+  
 volumes:
   ollama-chat:
